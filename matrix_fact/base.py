@@ -424,6 +424,7 @@ class TorchMatrixFactBase():
         if compute_err:
             self.ferr = torch.zeros(niter)
 
+        self.converge_iter = niter
         for i in range(niter):
             if compute_w:
                 self._update_w()
@@ -445,6 +446,7 @@ class TorchMatrixFactBase():
                 if self._converged(i):
                     # adjust the error measure
                     self.ferr = self.ferr[:i]
+                    self.converge_iter = i
                     break
 
 def _test():
