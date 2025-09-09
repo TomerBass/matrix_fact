@@ -15,8 +15,9 @@ import torch
 __all__ = ["MatrixFactBase", "MatrixFactBase3", "eighk", "cmdet", "simplex"]
 _EPS = np.finfo(float).eps
 
+
 def eighk(M, k=0):
-    """ Returns ordered eigenvectors of a squared matrix. Too low eigenvectors
+    """Returns ordered eigenvectors of a squared matrix. Too low eigenvectors
     are ignored. Optionally only the first k vectors/values are returned.
 
     Arguments
@@ -40,18 +41,18 @@ def eighk(M, k=0):
     # sort eigenvectors according to largest value
     idx = np.argsort(values)[::-1]
     values = values[idx]
-    vectors = vectors[:,idx]
+    vectors = vectors[:, idx]
 
     # select only the top k eigenvectors
     if k > 0:
         values = values[:k]
-        vectors = vectors[:,:k]
+        vectors = vectors[:, :k]
 
     return values, vectors
 
 
 def cmdet(d):
-    """ Returns the Volume of a simplex computed via the Cayley-Menger
+    """Returns the Volume of a simplex computed via the Cayley-Menger
     determinant.
 
     Arguments
@@ -62,11 +63,11 @@ def cmdet(d):
     -------
     V - volume of the simplex given by d
     """
-    D = np.ones((d.shape[0]+1,d.shape[0]+1))
-    D[0,0] = 0.0
-    D[1:,1:] = d**2
-    j = np.float32(D.shape[0]-2)
-    f1 = (-1.0)**(j+1) / ( (2**j) * ((factorial(j))**2))
+    D = np.ones((d.shape[0] + 1, d.shape[0] + 1))
+    D[0, 0] = 0.0
+    D[1:, 1:] = d**2
+    j = np.float32(D.shape[0] - 2)
+    f1 = (-1.0) ** (j + 1) / ((2**j) * ((factorial(j)) ** 2))
     cmd = f1 * np.linalg.det(D)
 
     # sometimes, for very small values, "cmd" might be negative, thus we take
@@ -75,7 +76,7 @@ def cmdet(d):
 
 
 def simplex(d):
-    """ Computed the volume of a simplex S given by a coordinate matrix D.
+    """Computed the volume of a simplex S given by a coordinate matrix D.
 
     Arguments
     ---------
@@ -86,23 +87,23 @@ def simplex(d):
     V - volume of the Simplex spanned by d
     """
     # compute the simplex volume using coordinates
-    D = np.ones((d.shape[0]+1, d.shape[1]))
-    D[1:,:] = d
+    D = np.ones((d.shape[0] + 1, d.shape[1]))
+    D[1:, :] = d
     V = np.abs(np.linalg.det(D)) / factorial(d.shape[1] - 1)
     return V
 
 
-class MatrixFactBase():
+class MatrixFactBase:
     """
     MatrixFact Base Class. Does nothing useful apart from providing some basic methods.
     """
+
     # some small value
 
     _EPS = _EPS
 
     def __init__(self, data, num_bases=4, **kwargs):
-        """
-        """
+        """ """
 
         def setup_logging():
             # create logger
@@ -130,20 +131,19 @@ class MatrixFactBase():
         # initialize H and W to random values
         self._data_dimension, self._num_samples = self.data.shape
 
-
     def residual(self):
-        """ Returns the residual in % of the total amount of data
+        """Returns the residual in % of the total amount of data
 
         Returns
         -------
         residual : float
         """
         res = np.sum(np.abs(self.data - np.dot(self.W, self.H)))
-        total = 100.0*res/np.sum(np.abs(self.data))
+        total = 100.0 * res / np.sum(np.abs(self.data))
         return total
 
     def frobenius_norm(self):
-        """ Frobenius norm (||data - WH||) of a data matrix and a low rank
+        """Frobenius norm (||data - WH||) of a data matrix and a low rank
         approximation given by WH. Minimizing the Fnorm ist the most common
         optimization criterion for matrix factorization methods.
 
@@ -153,38 +153,34 @@ class MatrixFactBase():
 
         """
         # check if W and H exist
-        if hasattr(self,'H') and hasattr(self,'W'):
+        if hasattr(self, "H") and hasattr(self, "W"):
             if scipy.sparse.issparse(self.data):
-                tmp = self.data[:,:] - (self.W * self.H)
+                tmp = self.data[:, :] - (self.W * self.H)
                 tmp = tmp.multiply(tmp).sum()
                 err = np.sqrt(tmp)
             else:
-                err = np.sqrt( np.sum((self.data[:,:] - np.dot(self.W, self.H))**2 ))
+                err = np.sqrt(np.sum((self.data[:, :] - np.dot(self.W, self.H)) ** 2))
         else:
             err = None
 
         return err
 
     def _init_w(self):
-        """ Initalize W to random values [0,1].
-        """
+        """Initalize W to random values [0,1]."""
         # add a small value, otherwise nmf and related methods get into trouble as
         # they have difficulties recovering from zero.
         self.W = np.random.random((self._data_dimension, self._num_bases)) + 10**-4
 
     def _init_h(self):
-        """ Initalize H to random values [0,1].
-        """
+        """Initalize H to random values [0,1]."""
         self.H = np.random.random((self._num_bases, self._num_samples)) + 10**-4
 
     def _update_h(self):
-        """ Overwrite for updating H.
-        """
+        """Overwrite for updating H."""
         pass
 
     def _update_w(self):
-        """ Overwrite for updating W.
-        """
+        """Overwrite for updating W."""
         pass
 
     def _converged(self, i):
@@ -200,16 +196,22 @@ class MatrixFactBase():
         -------
             converged : boolean
         """
-        derr = np.abs(self.ferr[i] - self.ferr[i-1])/self._num_samples
+        derr = np.abs(self.ferr[i] - self.ferr[i - 1]) / self._num_samples
         if derr < self._EPS:
             return True
         else:
             return False
 
-    def factorize(self, niter=100, show_progress=False,
-                  compute_w=True, compute_h=True, compute_err=True,
-                  epoch_hook=None):
-        """ Factorize s.t. WH = data
+    def factorize(
+        self,
+        niter=100,
+        show_progress=False,
+        compute_w=True,
+        compute_h=True,
+        compute_err=True,
+        epoch_hook=None,
+    ):
+        """Factorize s.t. WH = data
 
         Parameters
         ----------
@@ -241,10 +243,10 @@ class MatrixFactBase():
 
         # create W and H if they don't already exist
         # -> any custom initialization to W,H should be done before
-        if not hasattr(self,'W') and compute_w:
+        if not hasattr(self, "W") and compute_w:
             self._init_w()
 
-        if not hasattr(self,'H') and compute_h:
+        if not hasattr(self, "H") and compute_h:
             self._init_h()
 
         # Computation of the error can take quite long for large matrices,
@@ -261,13 +263,12 @@ class MatrixFactBase():
 
             if compute_err:
                 self.ferr[i] = self.frobenius_norm()
-                self._logger.info('FN: %s (%s/%s)'  %(self.ferr[i], i+1, niter))
+                self._logger.info("FN: %s (%s/%s)" % (self.ferr[i], i + 1, niter))
             else:
-                self._logger.info('Iteration: (%s/%s)'  %(i+1, niter))
+                self._logger.info("Iteration: (%s/%s)" % (i + 1, niter))
 
             if epoch_hook is not None:
                 epoch_hook(self)
-
 
             # check if the err is not changing anymore
             if i > 1 and compute_err:
@@ -277,7 +278,7 @@ class MatrixFactBase():
                     break
 
 
-class MatrixFactBase3():
+class MatrixFactBase3:
     """
     MatrixFactBase3(data, show_progress=False)
 
@@ -294,12 +295,11 @@ class MatrixFactBase3():
         U,S,V : submatrices s.t. data = USV
 
     """
+
     _EPS = _EPS
 
-
     def __init__(self, data, k=-1, rrank=0, crank=0):
-        """
-        """
+        """ """
         self.data = data
         (self._rows, self._cols) = self.data.shape
 
@@ -448,15 +448,21 @@ class TorchMatrixFactBase:
         pass
 
     def _converged(self, i):
-        derr = (self.ferr[i] - self.ferr[i-1]).abs() / self._num_samples
+        derr = (self.ferr[i] - self.ferr[i - 1]).abs() / self._num_samples
         if derr < self._EPS:
             return True
         else:
             return False
 
-    def factorize(self, niter=100, show_progress=False,
-                  compute_w=True, compute_h=True, compute_err=True,
-                  epoch_hook=None):
+    def factorize(
+        self,
+        niter=100,
+        show_progress=False,
+        compute_w=True,
+        compute_h=True,
+        compute_err=True,
+        epoch_hook=None,
+    ):
         if show_progress:
             self._logger.setLevel(logging.INFO)
         else:
@@ -492,9 +498,9 @@ class TorchMatrixFactBase:
 
             if compute_err:
                 self.ferr[i] = self.frobenius_norm()
-                self._logger.info('FN: %s (%s/%s)'  %(self.ferr[i], i+1, niter))
+                self._logger.info("FN: %s (%s/%s)" % (self.ferr[i], i + 1, niter))
             else:
-                self._logger.info('Iteration: (%s/%s)'  %(i+1, niter))
+                self._logger.info("Iteration: (%s/%s)" % (i + 1, niter))
 
             if epoch_hook is not None:
                 epoch_hook(self)
