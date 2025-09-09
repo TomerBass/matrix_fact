@@ -314,31 +314,31 @@ class MatrixFactBase3():
         self._k = k
 
     def frobenius_norm(self):
-        """ Frobenius norm (||data - USV||) for a data matrix and a low rank
+        """Frobenius norm (||data - USV||) for a data matrix and a low rank
         approximation given by SVH using rank k for U and V
 
         Returns:
             frobenius norm: F = ||data - USV||
         """
         if scipy.sparse.issparse(self.data):
-            err = self.data - (self.U*self.S*self.V)
+            err = self.data - (self.U * self.S * self.V)
             err = err.multiply(err)
             err = np.sqrt(err.sum())
         else:
-            err = self.data[:,:] - np.dot(np.dot(self.U, self.S), self.V)
+            err = self.data[:, :] - np.dot(np.dot(self.U, self.S), self.V)
             err = np.sqrt(np.sum(err**2))
 
         return err
 
-
     def factorize(self):
         pass
-    
-class TorchMatrixFactBase():
+
+
+class TorchMatrixFactBase:
     # some small value
     _EPS = 1e-10
 
-    def __init__(self, data, num_bases=4, **kwargs):
+    def __init__(self, data, num_bases=4, init="random", **kwargs):
         def setup_logging():
             # create logger
             self._logger = logging.getLogger("matrix_fact")
@@ -361,10 +361,10 @@ class TorchMatrixFactBase():
         # set variables
         self.data = data
         self._num_bases = num_bases
+        self.init = init
 
         # initialize H and W to random values
         self._data_dimension, self._num_samples = self.data.shape
-
 
     def residual(self):
         res = (self.data - torch.mm(self.W, self.H)).abs().sum()
@@ -373,21 +373,72 @@ class TorchMatrixFactBase():
 
     def frobenius_norm(self):
         # check if W and H exist
-        if hasattr(self,'H') and hasattr(self,'W'):
-            err = ((self.data - torch.mm(self.W, self.H))**2).sum().sqrt()
+        if hasattr(self, "H") and hasattr(self, "W"):
+            err = ((self.data - torch.mm(self.W, self.H)) ** 2).sum().sqrt()
         else:
             err = None
 
         return err
 
+    def nndsvd_init(self, X: torch.Tensor, r: int, eps: float = 1e-12):
+        """
+        Plain NNDSVD (no 'a/ar' zero-filling). Expects X >= 0 (uses X+ = max(X,0)).
+        Returns nonnegative W (F x r), H (r x T) on same device/dtype as X.
+        """
+        device, dtype = X.device, X.dtype
+        F, T = X.shape
+        Xp = torch.clamp(X, min=0).to(dtype)
+
+        U, S, Vh = torch.linalg.svd(Xp, full_matrices=False)  # Xp ≈ U @ diag(S) @ Vh
+        U = U[:, :r]
+        S = S[:r]
+        Vh = Vh[:r, :]
+
+        W = torch.zeros((F, r), device=device, dtype=dtype)
+        H = torch.zeros((r, T), device=device, dtype=dtype)
+
+        for j in range(r):
+            uj = U[:, j]
+            vj = Vh[j, :]
+
+            up = torch.clamp(uj, min=0)
+            un = torch.clamp(-uj, min=0)
+            vp = torch.clamp(vj, min=0)
+            vn = torch.clamp(-vj, min=0)
+
+            upn = torch.linalg.norm(up)
+            unn = torch.linalg.norm(un)
+            vpn = torch.linalg.norm(vp)
+            vnn = torch.linalg.norm(vn)
+
+            mp = upn * vpn
+            mn = unn * vnn
+
+            if mp >= mn and mp > 0:
+                W[:, j] = torch.sqrt(S[j] * mp) * (up / (upn + eps))
+                H[j, :] = torch.sqrt(S[j] * mp) * (vp / (vpn + eps))
+            elif mn > 0:
+                W[:, j] = torch.sqrt(S[j] * mn) * (un / (unn + eps))
+                H[j, :] = torch.sqrt(S[j] * mn) * (vn / (vnn + eps))
+            # else: both mp and mn are zero → leave column/row zeros (pure NNDSVD)
+
+        self.W = W
+        self.H = H
+
     def _init_w(self):
         # add a small value, otherwise nmf and related methods get into trouble as
         # they have difficulties recovering from zero.
-        self.W = torch.rand((self._data_dimension, self._num_bases), device=self.data.device) + 10**-4
+        self.W = (
+            torch.rand((self._data_dimension, self._num_bases), device=self.data.device)
+            + 10**-4
+        )
         self.W = self.W.to(self.data.dtype)
 
     def _init_h(self):
-        self.H = torch.rand((self._num_bases, self._num_samples), device=self.data.device) + 10**-4
+        self.H = (
+            torch.rand((self._num_bases, self._num_samples), device=self.data.device)
+            + 10**-4
+        )
         self.H = self.H.to(self.data.dtype)
 
     def _update_h(self):
@@ -413,11 +464,18 @@ class TorchMatrixFactBase():
 
         # create W and H if they don't already exist
         # -> any custom initialization to W,H should be done before
-        if not hasattr(self,'W') and compute_w:
-            self._init_w()
-
-        if not hasattr(self,'H') and compute_h:
-            self._init_h()
+        if (not hasattr(self, "W")) or (not hasattr(self, "H")):
+            if self.init == "nndsvd":
+                self.nndsvd_init(self.data, self._num_bases, eps=self._EPS)
+            elif self.init == "random":
+                if compute_w and not hasattr(self, "W"):
+                    self._init_w()
+                if compute_h and not hasattr(self, "H"):
+                    self._init_h()
+            else:
+                raise ValueError(
+                    f"Unknown init='{self.init}' (expected 'random' or 'nndsvd')."
+                )
 
         # Computation of the error can take quite long for large matrices,
         # thus we make it optional.
