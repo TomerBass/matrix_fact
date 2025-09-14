@@ -338,7 +338,7 @@ class TorchMatrixFactBase:
     # some small value
     _EPS = 1e-10
 
-    def __init__(self, data, num_bases=4, init="random", **kwargs):
+    def __init__(self, data, num_bases=4, init="random", W0=None, H0=None, **kwargs):
         def setup_logging():
             # create logger
             self._logger = logging.getLogger("matrix_fact")
@@ -362,6 +362,12 @@ class TorchMatrixFactBase:
         self.data = data
         self._num_bases = num_bases
         self.init = init
+        self._W0 = W0
+        self._H0 = H0
+
+        if (W0 is not None) or (H0 is not None):
+            self.init = "custom"
+
 
         # initialize H and W to random values
         self._data_dimension, self._num_samples = self.data.shape
@@ -469,7 +475,6 @@ class TorchMatrixFactBase:
             self._logger.setLevel(logging.ERROR)
 
         # create W and H if they don't already exist
-        # -> any custom initialization to W,H should be done before
         if (not hasattr(self, "W")) or (not hasattr(self, "H")):
             if self.init == "nndsvd":
                 self.nndsvd_init(self.data, self._num_bases, eps=self._EPS)
@@ -478,10 +483,23 @@ class TorchMatrixFactBase:
                     self._init_w()
                 if compute_h and not hasattr(self, "H"):
                     self._init_h()
+            elif self.init == "custom":
+                # Use provided W0/H0 if given; otherwise fall back to defaults
+                if not hasattr(self, "W"):
+                    if self._W0 is not None:
+                        self.W = torch.from_numpy(self._W0.values)
+                    elif compute_w:
+                        self._init_w()
+                if not hasattr(self, "H"):
+                    if self._H0 is not None:
+                        self.H = torch.from_numpy(self._H0.values)
+                    elif compute_h:
+                        self._init_h()
             else:
                 raise ValueError(
                     f"Unknown init='{self.init}' (expected 'random' or 'nndsvd')."
                 )
+
 
         # Computation of the error can take quite long for large matrices,
         # thus we make it optional.
